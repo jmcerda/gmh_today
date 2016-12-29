@@ -1,0 +1,48 @@
+# https://circleci.com/docs/configuration#machine
+machine:
+  php:
+    # https://circleci.com/docs/environment#php
+    version: 7.0.7
+  environment:
+    TEST_SITE_NAME: Example D8 Composer Test Site
+    ADMIN_EMAIL: admin@example.com
+    TERMINUS_SITE: ci-example-d8-composer
+    TERMINUS_ENV: ci-$CIRCLE_BUILD_NUM
+    TERMINUS_ENV_LABEL: CI-$CIRCLE_BUILD_NUM
+    MULTIDEV_DELETE_PATTERN: ^ci-
+    PATH: $PATH:~/.composer/vendor/bin:~/.config/composer/vendor/bin:tests/scripts
+
+dependencies:
+  cache_directories:
+    - ~/.composer/cache
+  pre:
+    # Avoid ssh prompting when connecting to new ssh hosts
+    - echo "StrictHostKeyChecking no" >> "$HOME/.ssh/config"
+    # Set the PHP timezone so that Behat script does not fail.
+    # Using > instead of >> will overwrite the file and disable xdebug.
+    # xdebug makes composer slower.
+    - git config --global user.email "$GIT_EMAIL"
+    - git config --global user.name "Circle CI"
+    - echo "date.timezone = 'US/Central'"  >  /opt/circleci/php/7.0.7/etc/conf.d/xdebug.ini
+  override:
+    - composer global require "hirak/prestissimo:^0.3"
+    - composer global require "consolidation/cgr"
+    - cgr "pantheon-systems/terminus:~1" --stability beta
+    - terminus --version
+    - cgr "drush/drush:~8"
+    - mkdir -p ~/.terminus/plugins
+    - composer create-project -d ~/.terminus/plugins pantheon-systems/terminus-composer-plugin:~1
+  post:
+    - terminus auth:login --machine-token=$TERMINUS_TOKEN
+    - delete-old-multidevs
+    - create-pantheon-multidev
+test:
+  override:
+    - run-behat
+
+deployment:
+  build-assets:
+    branch: master
+    commands:
+      - merge-pantheon-multidev
+      - terminus drush $TERMINUS_SITE.dev -- updatedb --yes
